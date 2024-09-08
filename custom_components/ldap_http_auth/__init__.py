@@ -4,15 +4,15 @@ from collections import OrderedDict
 from typing import cast, Any, Mapping
 
 import ldap3
-import asyncio
 
 import voluptuous as vol
-from homeassistant.auth import LoginFlow, InvalidAuthError, GROUP_ID_ADMIN
+from homeassistant.auth import LoginFlow, InvalidAuthError, GROUP_ID_ADMIN, EVENT_USER_ADDED
 from homeassistant.auth.const import GROUP_ID_USER
 from homeassistant.auth.models import Credentials, UserMeta
 from homeassistant.auth.providers import AUTH_PROVIDERS, AuthProvider
 import homeassistant.helpers.config_validation as cv
-from homeassistant.core import HomeAssistant
+from homeassistant.components.person import async_create_person, PersonStorageCollection, CONF_USER_ID, DOMAIN as PERSON_DOMAIN
+from homeassistant.core import HomeAssistant, callback, Event
 from homeassistant.exceptions import HomeAssistantError
 
 _LOGGER = logging.getLogger(__name__)
@@ -48,6 +48,7 @@ class InsufficientPermissions(HomeAssistantError):
 
 
 async def async_setup(hass: HomeAssistant, config):
+    # Auth provider
     providers = OrderedDict()
     provider = LDAPHttpAuthProvider(
         hass,
@@ -81,6 +82,22 @@ class LDAPHttpAuthProvider(AuthProvider):
     def support_mfa(self) -> bool:
         return False
 
+    async def _async_create_user_from_ldap(self, credentials: Credentials):
+        user = await self.store.async_create_user(
+            credentials=credentials,
+            name=self._user_meta["name"],
+            is_active=True,
+            is_owner=self._user_meta["admin"],
+            group_ids=[GROUP_ID_ADMIN if self._user_meta["admin"] else GROUP_ID_USER],
+            system_generated=False,
+            local_only=False
+        )
+        _LOGGER.info("Created user: %s", self._user_meta["name"])
+
+        await async_create_person(self.hass, user.name, user_id=user.id)
+        _LOGGER.info("Created person: %s", self._user_meta["name"])
+        self.hass.bus.async_fire(EVENT_USER_ADDED, {"user_id": user.id})
+
     async def async_get_or_create_credentials(
         self, flow_result: Mapping[str, str]
     ) -> Credentials:
@@ -90,16 +107,17 @@ class LDAPHttpAuthProvider(AuthProvider):
                 _LOGGER.debug(credentials)
                 return credentials
 
-        return self.async_create_credentials({"username": username})
+        # Let's create user
+        credentials = self.async_create_credentials({"username": username})
+        await self._async_create_user_from_ldap(credentials)
+        credentials.is_new = False
+
+        return credentials
 
     async def async_user_meta_for_credentials(
         self, credentials: Credentials
     ) -> UserMeta:
-        return UserMeta(
-            name=self._user_meta["name"],
-            is_active=True,
-            group=GROUP_ID_ADMIN if self._user_meta["admin"] else GROUP_ID_USER
-        )
+        raise NotImplementedError("User should be created while fetching credentials")
 
     async def async_login_flow(self, context: dict[str, Any] | None) -> LoginFlow:
         return LdapHttpAuthLoginFlow(self)
@@ -116,7 +134,6 @@ class LDAPHttpAuthProvider(AuthProvider):
         return self.config["admin_filter"].format(username=username)
 
     def _query_user_meta(self, connection: ldap3.Connection, username: str, user_dn: str):
-        _LOGGER.debug(self._user_access_query(username))
         status, result, response, _ = connection.search(user_dn, self._user_access_query(username),
                                                         attributes=["uid", "displayName"])
 
@@ -150,8 +167,6 @@ class LDAPHttpAuthProvider(AuthProvider):
         self._user_meta["admin"] = False
         if len(response) == 1:
             self._user_meta["admin"] = True
-
-        _LOGGER.info(self._user_meta)
 
     def _query_user_by_bind(self, username: str, password: str):
         user_dn = self._user_dn(username)
