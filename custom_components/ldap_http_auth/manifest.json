@@ -1,0 +1,16 @@
+{
+  "domain": "ldap_http_auth",
+  "name": "HTTP Header & LDAP Authentication",
+  "documentation": "",
+  "requirements": [
+    "ldap3==2.9.1"
+  ],
+  "ssdp": [],
+  "zeroconf": [],
+  "homekit": {},
+  "dependencies": [
+    "auth"
+  ],
+  "codeowners": ["@XertDev"],
+  "version": "0.1"
+}

@@ -1,0 +1,20 @@
+default_config:
+
+http:
+  use_x_forwarded_for: true
+  trusted_proxies:
+    - 0.0.0.0/0
+ldap_http_auth:
+  ldap_address: "ldap://test.local"
+  users_dn: "ou=users,dc=test,dc=local"
+
+  user_filter: "(&(objectClass=person)(memberof=cn=users,ou=homeassistant,ou=roles,dc=test,dc=local))"
+  admin_filter: "(&(objectClass=person)(memberof=cn=admins,ou=homeassistant,ou=roles,dc=test,dc=local))"
+
+  user: "uid=admin,ou=users,dc=test,dc=local"
+  password: "test"
+
+logger:
+  default: info
+  logs:
+    custom_components.ldap_http_auth: debug
