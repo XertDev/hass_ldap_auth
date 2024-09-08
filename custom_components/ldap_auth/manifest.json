@@ -1,6 +1,6 @@
 {
-  "domain": "ldap_http_auth",
-  "name": "HTTP Header & LDAP Authentication",
+  "domain": "ldap_auth",
+  "name": "LDAP Authentication",
   "documentation": "",
   "requirements": [
     "ldap3==2.9.1"

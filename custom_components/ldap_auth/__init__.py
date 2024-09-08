@@ -11,27 +11,22 @@ from homeassistant.auth.const import GROUP_ID_USER
 from homeassistant.auth.models import Credentials, UserMeta
 from homeassistant.auth.providers import AUTH_PROVIDERS, AuthProvider
 import homeassistant.helpers.config_validation as cv
-from homeassistant.components.person import async_create_person, PersonStorageCollection, CONF_USER_ID, DOMAIN as PERSON_DOMAIN
-from homeassistant.core import HomeAssistant, callback, Event
+from homeassistant.components.person import async_create_person
+from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
 
 _LOGGER = logging.getLogger(__name__)
 
-DOMAIN = "ldap_http_auth"
+DOMAIN = "ldap_auth"
 
 CONFIG_SCHEMA = vol.Schema(
     {
         DOMAIN: vol.Schema(
             {
-                vol.Required("username_header", default="Remote-User"): cv.string,
-
                 vol.Required("ldap_address"): cv.string,
                 vol.Required("users_dn"): cv.string,
                 vol.Required("user_filter"): cv.string,
                 vol.Required("admin_filter"): cv.string,
-
-                vol.Required("user"): cv.string,
-                vol.Required("password"): cv.string,
             }
         )
     },
@@ -50,7 +45,7 @@ class InsufficientPermissions(HomeAssistantError):
 async def async_setup(hass: HomeAssistant, config):
     # Auth provider
     providers = OrderedDict()
-    provider = LDAPHttpAuthProvider(
+    provider = LDAPAuthProvider(
         hass,
         hass.auth._store,
         config[DOMAIN]
@@ -60,13 +55,13 @@ async def async_setup(hass: HomeAssistant, config):
     providers.update(hass.auth._providers)
     hass.auth._providers = providers
 
-    _LOGGER.info("LDAP & HTTP header auth initialized")
+    _LOGGER.info("LDAP auth initialized")
     return True
 
 
-@AUTH_PROVIDERS.register("ldap_http")
-class LDAPHttpAuthProvider(AuthProvider):
-    DEFAULT_TITLE = "LDAP HTTP Authentication"
+@AUTH_PROVIDERS.register("ldap")
+class LDAPAuthProvider(AuthProvider):
+    DEFAULT_TITLE = "LDAP Authentication"
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
@@ -76,7 +71,7 @@ class LDAPHttpAuthProvider(AuthProvider):
 
     @property
     def type(self) -> str:
-        return "ldap_http"
+        return "ldap"
 
     @property
     def support_mfa(self) -> bool:
@@ -104,7 +99,7 @@ class LDAPHttpAuthProvider(AuthProvider):
         username = flow_result["username"]
         for credentials in await self.async_credentials():
             if credentials.data["username"] == username:
-                _LOGGER.debug(credentials)
+                _LOGGER.debug("Found existing credentials for user: %s", username)
                 return credentials
 
         # Let's create user
@@ -120,7 +115,7 @@ class LDAPHttpAuthProvider(AuthProvider):
         raise NotImplementedError("User should be created while fetching credentials")
 
     async def async_login_flow(self, context: dict[str, Any] | None) -> LoginFlow:
-        return LdapHttpAuthLoginFlow(self)
+        return LdapAuthLoginFlow(self)
 
     def _user_dn(self, username: str):
         return f"uid={username},{self.config['users_dn']}"
@@ -185,10 +180,10 @@ class LDAPHttpAuthProvider(AuthProvider):
         await self.hass.async_add_executor_job(self._query_user_by_bind, username, password)
 
 
-class LdapHttpAuthLoginFlow(LoginFlow):
+class LdapAuthLoginFlow(LoginFlow):
     def __init__(
             self,
-            auth_provider: LDAPHttpAuthProvider
+            auth_provider: LDAPAuthProvider
     ) -> None:
         super().__init__(auth_provider)
 
@@ -199,7 +194,7 @@ class LdapHttpAuthLoginFlow(LoginFlow):
             user_input["username"] = user_input["username"]
             try:
                 await cast(
-                    LDAPHttpAuthProvider, self._auth_provider
+                    LDAPAuthProvider, self._auth_provider
                 ).async_full_login(user_input["username"], user_input["password"])
             except InvalidAuth:
                 _LOGGER.debug("Username & password authorization failed")
